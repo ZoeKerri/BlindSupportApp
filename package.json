@@ -10,8 +10,17 @@
     "test": "jest"
   },
   "dependencies": {
+    "@infinitered/react-native-mlkit-object-detection": "^5.0.0",
+    "@react-native-ml-kit/image-labeling": "^2.0.0",
+    "@react-native-ml-kit/text-recognition": "^2.0.0",
+    "buffer": "^6.0.3",
     "react": "18.2.0",
-    "react-native": "0.74.7"
+    "react-native": "0.74.7",
+    "react-native-fast-tflite": "^2.0.0",
+    "react-native-image-picker": "^8.2.1",
+    "react-native-tts": "^4.1.1",
+    "react-native-vision-camera": "^4.7.3",
+    "react-native-worklets-core": "^1.6.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
