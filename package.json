@@ -13,6 +13,7 @@
     "@infinitered/react-native-mlkit-object-detection": "^5.0.0",
     "@react-native-ml-kit/image-labeling": "^2.0.0",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
+    "@react-native-voice/voice": "^3.2.4",
     "buffer": "^6.0.3",
     "react": "18.2.0",
     "react-native": "0.74.7",
