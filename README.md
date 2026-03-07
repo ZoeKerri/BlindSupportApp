@@ -1,1 +1,1 @@
-Hiện tại app đang bị lỗi phần OCR, object detection (nếu dùng model khác cụ thể là detect.tflite thì crash không phải do phiên bản gì đâu test thử xóa project thử r) nên fix đc thì fix
+OCR vẫn quá cùi cho tiếng Việt chắc xài API, h xong backend bên python r nộp
