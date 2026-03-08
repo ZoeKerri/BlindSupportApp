@@ -3,6 +3,7 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import { launchCamera, launchImageLibrary, CameraOptions, ImageLibraryOptions } from 'react-native-image-picker';
 import { TtsService } from '../services/TtsService';
 import { VisionService } from '../services/VisionService';
+import { CaptionService } from '../services/CaptionService';
 import { IoTService, ObstacleEvent, IoTMode } from '../services/IOTService';
 import { VoiceService, VoiceCommand } from '../services/VoiceService';
 import type { LiveCameraHandle } from '../components/LiveCameraView';
@@ -11,6 +12,7 @@ import type { LiveCameraHandle } from '../components/LiveCameraView';
 // 2 chế độ chính
 // ─────────────────────────────────────────────────
 export type MainMode = 'walking' | 'static';
+export type CaptureMode = 'online' | 'offline';
 
 export const useAppController = () => {
   // ── State chính ──────────────────────────────
@@ -19,6 +21,7 @@ export const useAppController = () => {
   const [recognizedText, setRecognizedText] = useState('Chạm vào màn hình để bắt đầu.\nChạm 3 lần liên tiếp để chuyển chế độ.');
   const [showLiveCamera, setShowLiveCamera] = useState(false);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('offline');
 
   // Ref để gọi captureNow() trên LiveCameraView
   const liveCameraRef = useRef<LiveCameraHandle>(null);
@@ -78,6 +81,19 @@ export const useAppController = () => {
         TtsService.speak('Không hiểu lệnh. Hãy nói: đọc sách, tiền, menu, hoặc chụp ảnh.');
         break;
     }
+  }, []);
+
+  // ── Chuyển online / offline ───────────────────
+  const toggleCaptureMode = useCallback(() => {
+    setCaptureMode(prev => {
+      const next: CaptureMode = prev === 'offline' ? 'online' : 'offline';
+      if (next === 'online') {
+        TtsService.speak('Chế độ online. Ảnh sẽ gửi lên máy chủ để mô tả chi tiết hơn.');
+      } else {
+        TtsService.speak('Chế độ offline. Nhận diện trực tiếp trên thiết bị.');
+      }
+      return next;
+    });
   }, []);
 
   // ── Chuyển chế độ bằng triple-tap ───────────
@@ -198,7 +214,11 @@ export const useAppController = () => {
           break;
         case 'auto':
         default:
-          resultText = await VisionService.processAutoDetect(imageUri);
+          if (captureMode === 'online') {
+            resultText = await CaptionService.captionImage(imageUri);
+          } else {
+            resultText = await VisionService.processAutoDetect(imageUri);
+          }
           break;
       }
 
@@ -274,6 +294,8 @@ export const useAppController = () => {
     recognizedText,
     showLiveCamera,
     isVoiceListening,
+    captureMode,
+    toggleCaptureMode,
     liveCameraRef,
     // IoT (giữ cho demo)
     iotMode, iotAlert, iotSimulator,

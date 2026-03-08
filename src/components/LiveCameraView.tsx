@@ -14,6 +14,7 @@ import {
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { TtsService } from '../services/TtsService';
 import { VisionService } from '../services/VisionService';
+import { CaptionService } from '../services/CaptionService';
 
 export interface LiveCameraHandle {
   captureNow: () => Promise<void>;
@@ -21,15 +22,19 @@ export interface LiveCameraHandle {
 
 interface Props {
   onClose: () => void;
+  captureMode?: 'online' | 'offline';
   onDetectionResult?: (text: string) => void;
 }
 
-const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, onDetectionResult }, ref) => {
+const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, captureMode = 'offline', onDetectionResult }, ref) => {
   const device = useCameraDevice('back');
   const cameraRef = useRef<Camera>(null);
   const [status, setStatus] = useState('Đang mở camera...');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const isProcessingRef = useRef(false);
+  // Giữ captureMode mới nhất trong ref để dùng trong closure của useImperativeHandle
+  const captureModeRef = useRef(captureMode);
+  useEffect(() => { captureModeRef.current = captureMode; }, [captureMode]);
 
   // ── Kiểm tra quyền camera (đã request ở useAppController) ──
   useEffect(() => {
@@ -59,7 +64,16 @@ const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, onDetecti
           flash: 'off',
           enableShutterSound: false,
         });
-        const result = await VisionService.processAutoDetect(`file://${photo.path}`);
+        const photoUri = `file://${photo.path}`;
+
+        let result: string;
+        if (captureModeRef.current === 'online') {
+          setStatus('Đang gửi lên máy chủ...');
+          result = await CaptionService.captionImage(photoUri);
+        } else {
+          setStatus('Đang phân tích...');
+          result = await VisionService.processAutoDetect(photoUri);
+        }
         setStatus(result);
         TtsService.speak(result);
         onDetectionResult?.(result);
