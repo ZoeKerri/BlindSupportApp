@@ -13,6 +13,7 @@ import type { LiveCameraHandle } from '../components/LiveCameraView';
 // ─────────────────────────────────────────────────
 export type MainMode = 'walking' | 'static';
 export type CaptureMode = 'online' | 'offline';
+export type OfflineProcessMode = 'object' | 'ocr';
 
 export const useAppController = () => {
   // ── State chính ──────────────────────────────
@@ -22,6 +23,7 @@ export const useAppController = () => {
   const [showLiveCamera, setShowLiveCamera] = useState(false);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('offline');
+  const [offlineProcessMode, setOfflineProcessMode] = useState<OfflineProcessMode>('object');
 
   // Ref để gọi captureNow() trên LiveCameraView
   const liveCameraRef = useRef<LiveCameraHandle>(null);
@@ -75,13 +77,22 @@ export const useAppController = () => {
         break;
       case 'chup':
         TtsService.speak('Đang chụp ảnh phân tích.');
-        captureAndProcess('auto');
+        if (captureMode === 'offline') {
+          captureAndProcess(offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
+        } else {
+          captureAndProcess('auto');
+        }
+        break;
+      case 'help':
+        TtsService.speak(
+          'Hướng dẫn nhanh. Chạm một lần để chụp. Giữ lâu để ra lệnh giọng nói. Chạm 3 lần để đổi chế độ đi đường hoặc tĩnh. Ở chế độ offline, vuốt trái hoặc phải để đổi giữa phân tích vật thể và OCR. Lệnh giọng nói hỗ trợ: đọc sách, tiền, menu, chụp ảnh và help.'
+        );
         break;
       default:
-        TtsService.speak('Không hiểu lệnh. Hãy nói: đọc sách, tiền, menu, hoặc chụp ảnh.');
+        TtsService.speak('Không hiểu lệnh. Hãy nói: đọc sách, tiền, menu, chụp ảnh, hoặc help.');
         break;
     }
-  }, []);
+  }, [captureMode, offlineProcessMode]);
 
   // ── Chuyển online / offline ───────────────────
   const toggleCaptureMode = useCallback(() => {
@@ -95,6 +106,21 @@ export const useAppController = () => {
       return next;
     });
   }, []);
+
+  // ── Offline: chuyển OCR / Object bằng vuốt ─────────
+  const toggleOfflineProcessMode = useCallback(() => {
+    if (captureMode !== 'offline') return;
+
+    setOfflineProcessMode(prev => {
+      const next: OfflineProcessMode = prev === 'object' ? 'ocr' : 'object';
+      if (next === 'object') {
+        TtsService.speak('Đã chuyển sang phân tích vật thể ngoại tuyến.');
+      } else {
+        TtsService.speak('Đã chuyển sang OCR ngoại tuyến để đọc chữ.');
+      }
+      return next;
+    });
+  }, [captureMode]);
 
   // ── Chuyển chế độ bằng triple-tap ───────────
   const handleTripleTap = useCallback(() => {
@@ -154,17 +180,21 @@ export const useAppController = () => {
         setShowLiveCamera(true);
       }
     } else {
-      // Chế độ tĩnh: chụp ảnh + auto-detect
+      // Chế độ tĩnh: online -> caption, offline -> object hoặc OCR theo lựa chọn
       TtsService.speak('Đang chụp ảnh.');
-      captureAndProcess('auto');
+      if (captureMode === 'offline') {
+        captureAndProcess(offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
+      } else {
+        captureAndProcess('auto');
+      }
     }
-  }, [mainMode, loading, showLiveCamera]);
+  }, [mainMode, loading, showLiveCamera, captureMode, offlineProcessMode]);
 
   // ── Long press: kích hoạt nhận dạng giọng nói ──
   const handleLongPress = useCallback(() => {
     if (mainMode !== 'static') return;
 
-    TtsService.speak('Đang lắng nghe lệnh. Hãy nói: đọc sách, tiền, menu, hoặc chụp ảnh.');
+    TtsService.speak('Đang lắng nghe lệnh. Hãy nói: đọc sách, tiền, menu, chụp ảnh hoặc help để nghe hướng dẫn.');
     setIsVoiceListening(true);
     VoiceService.startListening();
   }, [mainMode]);
@@ -242,7 +272,11 @@ export const useAppController = () => {
     };
     const result = await launchImageLibrary(options);
     if (result.assets?.[0]?.uri) {
-      await processImage(result.assets[0].uri, 'auto');
+      if (captureMode === 'offline') {
+        await processImage(result.assets[0].uri, offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
+      } else {
+        await processImage(result.assets[0].uri, 'auto');
+      }
     }
   };
 
@@ -296,6 +330,8 @@ export const useAppController = () => {
     isVoiceListening,
     captureMode,
     toggleCaptureMode,
+    offlineProcessMode,
+    toggleOfflineProcessMode,
     liveCameraRef,
     // IoT (giữ cho demo)
     iotMode, iotAlert, iotSimulator,

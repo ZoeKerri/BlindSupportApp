@@ -13,6 +13,7 @@ const HomeScreen = () => {
     mainMode, loading, recognizedText,
     showLiveCamera, isVoiceListening,
     captureMode, toggleCaptureMode,
+    offlineProcessMode, toggleOfflineProcessMode,
     liveCameraRef,
     iotMode, iotAlert, iotSimulator,
     handleScreenTap, handleLongPress,
@@ -22,15 +23,27 @@ const HomeScreen = () => {
 
   const [showIoTPanel, setShowIoTPanel] = useState(false);
 
-  // Vuốt 2 ngón tay trái/phải → chuyển online / offline
+  // Vuốt:
+  // - 2 ngón tay: online/offline
+  // - 1 ngón tay (chế độ tĩnh + offline): object/ocr
   const swipeResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder:        evt => evt.nativeEvent.touches.length >= 2,
-      onStartShouldSetPanResponderCapture: evt => evt.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponder:         evt => evt.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponderCapture:  evt => evt.nativeEvent.touches.length >= 2,
-      onPanResponderRelease: (_evt, gesture) => {
-        if (Math.abs(gesture.dx) > 60) toggleCaptureMode();
+      onStartShouldSetPanResponder:        () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder:         evt => evt.nativeEvent.touches.length >= 1,
+      onMoveShouldSetPanResponderCapture:  evt => evt.nativeEvent.touches.length >= 1,
+      onPanResponderRelease: (evt, gesture) => {
+        if (Math.abs(gesture.dx) <= 60) return;
+
+        const touches = evt.nativeEvent.touches.length || evt.nativeEvent.changedTouches.length;
+        if (touches >= 2) {
+          toggleCaptureMode();
+          return;
+        }
+
+        if (touches === 1 && mainMode === 'static' && captureMode === 'offline') {
+          toggleOfflineProcessMode();
+        }
       },
     })
   ).current;
@@ -62,7 +75,7 @@ const HomeScreen = () => {
 
   const modeHint: Record<MainMode, string> = {
     walking: 'Camera tự động nhận diện vật thể\nChạm 3 lần để chuyển chế độ',
-    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nChạm 3 lần để chuyển chế độ',
+    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR và vật thể · Chạm 3 lần để chuyển chế độ',
   };
 
   return (
@@ -116,6 +129,16 @@ const HomeScreen = () => {
                 {captureMode === 'online' ? '🌐 ONLINE' : '🔌 OFFLINE'}
               </Text>
             </View>
+            {captureMode === 'offline' && (
+              <View style={[
+                s.captureBadge,
+                offlineProcessMode === 'object' ? s.captureBadgeOffline : s.captureBadgeOnline,
+              ]}>
+                <Text style={s.captureBadgeText}>
+                  {offlineProcessMode === 'object' ? '📦 OFFLINE: VẬT THỂ' : '📝 OFFLINE: OCR'}
+                </Text>
+              </View>
+            )}
           </>
         )}
 

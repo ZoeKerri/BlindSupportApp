@@ -7,6 +7,7 @@
  *   "tiền" / "mệnh giá"               → chụp + nhận diện tiền
  *   "menu" / "thực đơn" / "bảng giá"  → chụp + OCR menu
  *   "chụp" / "chụp ảnh"               → chụp + auto-detect
+ *   "help" / "hướng dẫn"              → đọc hướng dẫn sử dụng
  */
 
 import Voice, {
@@ -19,6 +20,7 @@ export type VoiceCommand =
   | 'tien'       // nhận diện tiền
   | 'menu'       // đọc menu / bảng giá
   | 'chup'       // chụp ảnh auto-detect
+  | 'help'       // đọc hướng dẫn nhanh
   | 'unknown';
 
 export type VoiceCommandCallback = (cmd: VoiceCommand, raw: string) => void;
@@ -34,6 +36,7 @@ function parseCommand(text: string): VoiceCommand {
   if (/tiền|mệnh\s*giá|tien|menh\s*gia/.test(lower)) return 'tien';
   if (/menu|thực\s*đơn|bảng\s*giá|bang\s*gia|thuc\s*don/.test(lower)) return 'menu';
   if (/chụp|chup|ảnh|anh|capture/.test(lower)) return 'chup';
+  if (/help|hướng\s*dẫn|huong\s*dan|trợ\s*giúp|tro\s*giup/.test(lower)) return 'help';
 
   return 'unknown';
 }
