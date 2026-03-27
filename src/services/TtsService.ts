@@ -9,7 +9,6 @@ export const TtsService = {
       Tts.setDefaultLanguage('vi-VN')
         .then(() => {
           ttsAvailable = true;
-          Tts.speak('Ứng dụng đã sẵn sàng.');
         })
         .catch(() => {
           ttsAvailable = false;

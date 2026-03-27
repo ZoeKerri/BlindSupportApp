@@ -17,7 +17,7 @@ const HomeScreen = () => {
     liveCameraRef,
     iotMode, iotAlert, iotSimulator,
     handleScreenTap, handleLongPress,
-    handleCloseLiveCamera, handleGallery,
+    handleCloseLiveCamera, handleStaticPhotoCaptured, handleGallery,
     toggleIoT, testIoTSignal,
   } = useAppController();
 
@@ -92,6 +92,8 @@ const HomeScreen = () => {
           ref={liveCameraRef}
           onClose={handleCloseLiveCamera}
           captureMode={captureMode}
+          autoCaptureDelayMs={mainMode === 'static' ? 500 : 0}
+          onPhotoCaptured={mainMode === 'static' ? handleStaticPhotoCaptured : undefined}
         />
       </Modal>
 

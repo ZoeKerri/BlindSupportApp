@@ -102,6 +102,14 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    applicationVariants.configureEach { variant ->
+        if (variant.buildType.name == "release") {
+            variant.outputs.configureEach {
+                outputFileName = "TroLyKhiemThi-v${variant.versionName}.apk"
+            }
+        }
+    }
 }
 
 dependencies {

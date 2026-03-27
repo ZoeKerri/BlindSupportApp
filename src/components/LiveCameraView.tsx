@@ -24,14 +24,17 @@ interface Props {
   onClose: () => void;
   captureMode?: 'online' | 'offline';
   onDetectionResult?: (text: string) => void;
+  autoCaptureDelayMs?: number;
+  onPhotoCaptured?: (photoUri: string) => Promise<void> | void;
 }
 
-const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, captureMode = 'offline', onDetectionResult }, ref) => {
+const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, captureMode = 'offline', onDetectionResult, autoCaptureDelayMs = 0, onPhotoCaptured }, ref) => {
   const device = useCameraDevice('back');
   const cameraRef = useRef<Camera>(null);
   const [status, setStatus] = useState('Đang mở camera...');
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const isProcessingRef = useRef(false);
+  const autoCaptureTriggeredRef = useRef(false);
   // Giữ captureMode mới nhất trong ref để dùng trong closure của useImperativeHandle
   const captureModeRef = useRef(captureMode);
   useEffect(() => { captureModeRef.current = captureMode; }, [captureMode]);
@@ -66,6 +69,12 @@ const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, captureMo
         });
         const photoUri = `file://${photo.path}`;
 
+        if (onPhotoCaptured) {
+          setStatus('Đang phân tích...');
+          await onPhotoCaptured(photoUri);
+          return;
+        }
+
         let result: string;
         if (captureModeRef.current === 'online') {
           setStatus('Đang gửi lên máy chủ...');
@@ -85,6 +94,41 @@ const LiveCameraView = forwardRef<LiveCameraHandle, Props>(({ onClose, captureMo
       }
     },
   }));
+
+  // Chế độ tĩnh: tự chụp sau khi mở camera để người dùng không cần bấm nút chụp hệ thống
+  useEffect(() => {
+    if (autoCaptureDelayMs <= 0) return;
+    if (autoCaptureTriggeredRef.current) return;
+    if (!device || hasPermission !== true) return;
+
+    autoCaptureTriggeredRef.current = true;
+    setStatus('Giữ yên máy. Tự động chụp sau nửa giây...');
+
+    const timer = setTimeout(() => {
+      if (isProcessingRef.current || !cameraRef.current) return;
+      isProcessingRef.current = true;
+      cameraRef.current
+        .takePhoto({
+          flash: 'off',
+          enableShutterSound: false,
+        })
+        .then(async photo => {
+          const photoUri = `file://${photo.path}`;
+          if (onPhotoCaptured) {
+            await onPhotoCaptured(photoUri);
+          }
+        })
+        .catch(e => {
+          console.warn('📷 Auto capture error:', e);
+          setStatus('Lỗi chụp ảnh.');
+        })
+        .finally(() => {
+          isProcessingRef.current = false;
+        });
+    }, autoCaptureDelayMs);
+
+    return () => clearTimeout(timer);
+  }, [autoCaptureDelayMs, device, hasPermission, onPhotoCaptured]);
 
   if (hasPermission === null) {
     return (

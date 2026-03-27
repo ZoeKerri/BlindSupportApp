@@ -27,6 +27,7 @@ export const useAppController = () => {
 
   // Ref để gọi captureNow() trên LiveCameraView
   const liveCameraRef = useRef<LiveCameraHandle>(null);
+  const voiceInitializedRef = useRef(false);
 
   // IoT state (giữ nguyên cho demo/test)
   const [iotMode, setIotMode] = useState<IoTMode>('disconnected');
@@ -35,6 +36,7 @@ export const useAppController = () => {
 
   // ── Triple-tap detection ─────────────────────
   const tapTimesRef = useRef<number[]>([]);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const TRIPLE_TAP_WINDOW = 600; // 3 tap trong 600ms
 
   // ── Khởi tạo ────────────────────────────────
@@ -46,15 +48,11 @@ export const useAppController = () => {
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA).catch(() => {});
     }
 
-    // Voice command handler
-    VoiceService.init((cmd: VoiceCommand, raw: string) => {
-      console.log('🎙️ Lệnh:', cmd, '| Raw:', raw);
-      handleVoiceCommand(cmd);
-    });
-
     return () => {
       IoTService.stop();
-      VoiceService.destroy();
+      if (voiceInitializedRef.current) {
+        VoiceService.destroy();
+      }
     };
   }, []);
 
@@ -154,20 +152,43 @@ export const useAppController = () => {
 
     // Triple-tap detected!
     if (taps.length >= 3) {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
       taps.length = 0; // Reset
       handleTripleTap();
       return;
     }
 
-    // Đợi xem có tap tiếp không (debounce cho single/double tap)
-    setTimeout(() => {
-      // Nếu sau 400ms mà vẫn chỉ 1 tap → single tap
-      if (tapTimesRef.current.length === 1 && Date.now() - tapTimesRef.current[0] >= 350) {
+    // Tap đơn: chỉ kích hoạt sau 0.5s để phân biệt với chuỗi tap liên tiếp
+    if (taps.length === 1 && !singleTapTimerRef.current) {
+      singleTapTimerRef.current = setTimeout(() => {
+        const currentTaps = tapTimesRef.current;
+        const stillSingleTap =
+          currentTaps.length === 1 && Date.now() - currentTaps[0] >= 500;
+
         tapTimesRef.current = [];
-        handleSingleTap();
-      }
-    }, 400);
-  }, [mainMode, loading, handleTripleTap]);
+        singleTapTimerRef.current = null;
+
+        if (stillSingleTap) {
+          if (!loading) {
+            if (mainMode === 'walking') {
+              if (!showLiveCamera) {
+                TtsService.speak('Đang mở camera.');
+                setShowLiveCamera(true);
+              }
+            } else {
+              TtsService.speak('Đang mở camera. Sẽ tự chụp sau nửa giây.');
+              if (!showLiveCamera) {
+                setShowLiveCamera(true);
+              }
+            }
+          }
+        }
+      }, 500);
+    }
+  }, [handleTripleTap, loading, mainMode, showLiveCamera]);
 
   // ── Single tap: hành động chính tùy chế độ ──
   const handleSingleTap = useCallback(() => {
@@ -180,24 +201,36 @@ export const useAppController = () => {
         setShowLiveCamera(true);
       }
     } else {
-      // Chế độ tĩnh: online -> caption, offline -> object hoặc OCR theo lựa chọn
-      TtsService.speak('Đang chụp ảnh.');
-      if (captureMode === 'offline') {
-        captureAndProcess(offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
-      } else {
-        captureAndProcess('auto');
+      // Chế độ tĩnh: mở camera nội bộ và tự chụp sau 0.5s
+      TtsService.speak('Đang mở camera. Sẽ tự chụp sau nửa giây.');
+      if (!showLiveCamera) {
+        setShowLiveCamera(true);
       }
     }
-  }, [mainMode, loading, showLiveCamera, captureMode, offlineProcessMode]);
+  }, [mainMode, loading, showLiveCamera]);
 
   // ── Long press: kích hoạt nhận dạng giọng nói ──
   const handleLongPress = useCallback(() => {
     if (mainMode !== 'static') return;
 
+    if (!voiceInitializedRef.current) {
+      try {
+        VoiceService.init((cmd: VoiceCommand, raw: string) => {
+          console.log('🎙️ Lệnh:', cmd, '| Raw:', raw);
+          handleVoiceCommand(cmd);
+        });
+        voiceInitializedRef.current = true;
+      } catch (error) {
+        console.error('Voice init error:', error);
+        TtsService.speak('Thiết bị chưa hỗ trợ nhận diện giọng nói.');
+        return;
+      }
+    }
+
     TtsService.speak('Đang lắng nghe lệnh. Hãy nói: đọc sách, tiền, menu, chụp ảnh hoặc help để nghe hướng dẫn.');
     setIsVoiceListening(true);
     VoiceService.startListening();
-  }, [mainMode]);
+  }, [mainMode, handleVoiceCommand]);
 
   // ── Chụp ảnh + xử lý theo loại ──────────────
   type ProcessType = 'auto' | 'ocr_doc' | 'ocr_money' | 'ocr_menu';
@@ -306,6 +339,17 @@ export const useAppController = () => {
     }
   };
 
+  // ── Chế độ tĩnh: nhận ảnh từ camera nội bộ rồi xử lý ───
+  const handleStaticPhotoCaptured = useCallback(async (photoUri: string) => {
+    const processType: ProcessType =
+      captureMode === 'offline'
+        ? (offlineProcessMode === 'object' ? 'auto' : 'ocr_doc')
+        : 'auto';
+
+    await processImage(photoUri, processType);
+    setShowLiveCamera(false);
+  }, [captureMode, offlineProcessMode]);
+
   // ── IoT (giữ nguyên cho demo) ───────────────
   const toggleIoT = async (preferSimulator: boolean) => {
     if (IoTService.isActive) {
@@ -339,6 +383,7 @@ export const useAppController = () => {
     handleScreenTap,
     handleLongPress,
     handleCloseLiveCamera,
+    handleStaticPhotoCaptured,
     handleGallery,
     toggleIoT,
     testIoTSignal,
