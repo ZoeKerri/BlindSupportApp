@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity,
+  View, Text, TouchableOpacity, Image,
   ActivityIndicator, ScrollView, Modal, PanResponder,
 } from 'react-native';
 import { useAppController, MainMode } from '../hooks/useAppController';
@@ -10,9 +10,10 @@ import { AppStyles as s } from '../theme/AppStyles';
 
 const HomeScreen = () => {
   const {
-    mainMode, loading, recognizedText,
+    mainMode, loading, recognizedText, lastCapturedPhotoUri, staticAutoCaptureDelayMs,
     showLiveCamera, isVoiceListening,
     captureMode, toggleCaptureMode,
+    tryEnableOnlineMode,
     offlineProcessMode, toggleOfflineProcessMode,
     liveCameraRef,
     iotMode, iotAlert, iotSimulator,
@@ -22,16 +23,21 @@ const HomeScreen = () => {
   } = useAppController();
 
   const [showIoTPanel, setShowIoTPanel] = useState(false);
+  const swipeTimesRef = useRef<number[]>([]);
+  const SWIPE_STREAK_WINDOW_MS = 2200;
 
   // Vuốt:
-  // - 2 ngón tay: online/offline
   // - 1 ngón tay (chế độ tĩnh + offline): object/ocr
+  // - Vuốt ngang 3 lần liên tiếp: thử chuyển online (có kiểm tra server)
+  // - 2 ngón tay: giữ hành vi cũ online/offline
   const swipeResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder:        () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder:         evt => evt.nativeEvent.touches.length >= 1,
-      onMoveShouldSetPanResponderCapture:  evt => evt.nativeEvent.touches.length >= 1,
+      onMoveShouldSetPanResponder:         (_evt, gesture) => (
+        Math.abs(gesture.dx) > 22 && Math.abs(gesture.dx) > Math.abs(gesture.dy)
+      ),
+      onMoveShouldSetPanResponderCapture:  () => false,
       onPanResponderRelease: (evt, gesture) => {
         if (Math.abs(gesture.dx) <= 60) return;
 
@@ -41,8 +47,24 @@ const HomeScreen = () => {
           return;
         }
 
-        if (touches === 1 && mainMode === 'static' && captureMode === 'offline') {
-          toggleOfflineProcessMode();
+        if (touches === 1 && mainMode === 'static') {
+          const now = Date.now();
+          const swipes = swipeTimesRef.current;
+          swipes.push(now);
+
+          while (swipes.length > 0 && now - swipes[0] > SWIPE_STREAK_WINDOW_MS) {
+            swipes.shift();
+          }
+
+          if (captureMode === 'offline' && swipes.length >= 3) {
+            swipeTimesRef.current = [];
+            tryEnableOnlineMode();
+            return;
+          }
+
+          if (captureMode === 'offline') {
+            toggleOfflineProcessMode();
+          }
         }
       },
     })
@@ -75,7 +97,7 @@ const HomeScreen = () => {
 
   const modeHint: Record<MainMode, string> = {
     walking: 'Camera tự động nhận diện vật thể\nChạm 3 lần để chuyển chế độ',
-    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR và vật thể · Chạm 3 lần để chuyển chế độ',
+    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR/vật thể · Vuốt 3 lần liên tiếp để bật online · Chạm 3 lần để chuyển chế độ',
   };
 
   return (
@@ -92,7 +114,7 @@ const HomeScreen = () => {
           ref={liveCameraRef}
           onClose={handleCloseLiveCamera}
           captureMode={captureMode}
-          autoCaptureDelayMs={mainMode === 'static' ? 500 : 0}
+          autoCaptureDelayMs={mainMode === 'static' ? staticAutoCaptureDelayMs : 0}
           onPhotoCaptured={mainMode === 'static' ? handleStaticPhotoCaptured : undefined}
         />
       </Modal>
@@ -102,7 +124,7 @@ const HomeScreen = () => {
         style={[s.mainTouchArea, { backgroundColor: modeColor[mainMode] }]}
         onPress={handleScreenTap}
         onLongPress={handleLongPress}
-        delayLongPress={800}
+        delayLongPress={600}
         activeOpacity={0.85}
         disabled={loading}
         accessibilityLabel={
@@ -112,6 +134,18 @@ const HomeScreen = () => {
         }
         accessibilityRole="button"
       >
+        {mainMode === 'static' && lastCapturedPhotoUri && (
+          <Image
+            source={{ uri: lastCapturedPhotoUri }}
+            style={s.mainTouchAreaBgImage}
+            resizeMode="cover"
+          />
+        )}
+
+        {mainMode === 'static' && lastCapturedPhotoUri && (
+          <View style={s.mainTouchAreaBgOverlay} />
+        )}
+
         {loading ? (
           <>
             <ActivityIndicator size="large" color="#fff" />

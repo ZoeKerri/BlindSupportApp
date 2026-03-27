@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PermissionsAndroid, Platform } from 'react-native';
+import { PermissionsAndroid, Platform, Vibration } from 'react-native';
 import { launchCamera, launchImageLibrary, CameraOptions, ImageLibraryOptions } from 'react-native-image-picker';
 import { TtsService } from '../services/TtsService';
 import { VisionService } from '../services/VisionService';
@@ -21,6 +21,8 @@ export const useAppController = () => {
   const [loading, setLoading] = useState(false);
   const [recognizedText, setRecognizedText] = useState('Chạm vào màn hình để bắt đầu.\nChạm 3 lần liên tiếp để chuyển chế độ.');
   const [showLiveCamera, setShowLiveCamera] = useState(false);
+  const [lastCapturedPhotoUri, setLastCapturedPhotoUri] = useState<string | null>(null);
+  const [staticAutoCaptureDelayMs, setStaticAutoCaptureDelayMs] = useState(500);
   const [isVoiceListening, setIsVoiceListening] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('offline');
   const [offlineProcessMode, setOfflineProcessMode] = useState<OfflineProcessMode>('object');
@@ -37,7 +39,7 @@ export const useAppController = () => {
   // ── Triple-tap detection ─────────────────────
   const tapTimesRef = useRef<number[]>([]);
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const TRIPLE_TAP_WINDOW = 600; // 3 tap trong 600ms
+  const TRIPLE_TAP_WINDOW = 1000; // 3 tap trong 1000ms
 
   // ── Khởi tạo ────────────────────────────────
   useEffect(() => {
@@ -59,38 +61,24 @@ export const useAppController = () => {
   // ── Xử lý lệnh giọng nói (chế độ tĩnh) ────
   const handleVoiceCommand = useCallback((cmd: VoiceCommand) => {
     setIsVoiceListening(false);
+    VoiceService.stopListening();
 
     switch (cmd) {
       case 'doc_sach':
-        TtsService.speak('Đang chụp ảnh đọc sách.');
-        captureAndProcess('ocr_doc');
-        break;
-      case 'tien':
-        TtsService.speak('Đang chụp ảnh nhận diện tiền.');
-        captureAndProcess('ocr_money');
-        break;
-      case 'menu':
-        TtsService.speak('Đang chụp ảnh đọc menu.');
-        captureAndProcess('ocr_menu');
-        break;
-      case 'chup':
-        TtsService.speak('Đang chụp ảnh phân tích.');
-        if (captureMode === 'offline') {
-          captureAndProcess(offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
-        } else {
-          captureAndProcess('auto');
-        }
+        TtsService.speak('Đã nhận lệnh đọc sách. Đang chụp ngay.');
+        setStaticAutoCaptureDelayMs(120);
+        setShowLiveCamera(true);
         break;
       case 'help':
         TtsService.speak(
-          'Hướng dẫn nhanh. Chạm một lần để chụp. Giữ lâu để ra lệnh giọng nói. Chạm 3 lần để đổi chế độ đi đường hoặc tĩnh. Ở chế độ offline, vuốt trái hoặc phải để đổi giữa phân tích vật thể và OCR. Lệnh giọng nói hỗ trợ: đọc sách, tiền, menu, chụp ảnh và help.'
+          'Hướng dẫn nhanh. Chạm một lần để chụp. Giữ lâu để ra lệnh giọng nói. Chạm 3 lần để đổi chế độ đi đường hoặc tĩnh. Ở chế độ offline, vuốt trái hoặc phải để đổi giữa phân tích vật thể và OCR. Lệnh giọng nói hỗ trợ: đọc sách và help.'
         );
         break;
       default:
-        TtsService.speak('Không hiểu lệnh. Hãy nói: đọc sách, tiền, menu, chụp ảnh, hoặc help.');
+        TtsService.speak('Không hiểu lệnh. Hãy nói: đọc sách hoặc help.');
         break;
     }
-  }, [captureMode, offlineProcessMode]);
+  }, []);
 
   // ── Chuyển online / offline ───────────────────
   const toggleCaptureMode = useCallback(() => {
@@ -104,6 +92,25 @@ export const useAppController = () => {
       return next;
     });
   }, []);
+
+  const tryEnableOnlineMode = useCallback(async () => {
+    if (captureMode === 'online') {
+      TtsService.speak('Đang ở chế độ online.');
+      return true;
+    }
+
+    TtsService.speak('Đang kiểm tra máy chủ online.');
+    const healthy = await CaptionService.checkHealth();
+
+    if (healthy) {
+      setCaptureMode('online');
+      TtsService.speak('Đã chuyển sang chế độ online.');
+      return true;
+    }
+
+    TtsService.speak('Không kết nối được máy chủ online. Vẫn giữ chế độ offline.');
+    return false;
+  }, [captureMode]);
 
   // ── Offline: chuyển OCR / Object bằng vuốt ─────────
   const toggleOfflineProcessMode = useCallback(() => {
@@ -148,15 +155,18 @@ export const useAppController = () => {
     // Chỉ giữ các tap trong cửa sổ thời gian
     while (taps.length > 0 && now - taps[0] > TRIPLE_TAP_WINDOW) {
       taps.shift();
+      console.log(`📱 Tap count: ${taps.length}, window: ${TRIPLE_TAP_WINDOW}ms`);
+
     }
 
     // Triple-tap detected!
     if (taps.length >= 3) {
+        console.log('🎯 Triple-tap detected! Switching mode...');
       if (singleTapTimerRef.current) {
         clearTimeout(singleTapTimerRef.current);
         singleTapTimerRef.current = null;
       }
-      taps.length = 0; // Reset
+      tapTimesRef.current = []; // Reset properly
       handleTripleTap();
       return;
     }
@@ -209,10 +219,22 @@ export const useAppController = () => {
     }
   }, [mainMode, loading, showLiveCamera]);
 
-  // ── Long press: kích hoạt nhận dạng giọng nói ──
+  // ── Long press: toggle nhận dạng giọng nói (bật/tắt) ──
   const handleLongPress = useCallback(() => {
-    if (mainMode !== 'static') return;
+    if (mainMode !== 'static') {
+      TtsService.speak('Chế độ đi đường không dùng giữ lâu. Chạm 3 lần để về chế độ tĩnh rồi giữ lâu để bật giọng nói.');
+      return;
+    }
 
+    // Nếu đang lắng nghe → tắt
+    if (isVoiceListening) {
+      setIsVoiceListening(false);
+      VoiceService.stopListening();
+      TtsService.speak('Đã tắt lắng nghe.');
+      return;
+    }
+
+    // Nếu không lắng nghe → bật
     if (!voiceInitializedRef.current) {
       try {
         VoiceService.init((cmd: VoiceCommand, raw: string) => {
@@ -227,10 +249,22 @@ export const useAppController = () => {
       }
     }
 
-    TtsService.speak('Đang lắng nghe lệnh. Hãy nói: đọc sách, tiền, menu, chụp ảnh hoặc help để nghe hướng dẫn.');
-    setIsVoiceListening(true);
-    VoiceService.startListening();
-  }, [mainMode, handleVoiceCommand]);
+    TtsService.speak('Đang bật nhận dạng giọng nói. Hãy nói đọc sách hoặc help.');
+    VoiceService.startListening().then((started) => {
+      if (started) {
+        setIsVoiceListening(true);
+        TtsService.speak('Đang lắng nghe lệnh. Hãy nói đọc sách hoặc help.');
+      } else {
+        setIsVoiceListening(false);
+        Vibration.vibrate([0, 150, 80, 150]);
+        TtsService.speak('Thiết bị chưa có dịch vụ nhận diện giọng nói. Vui lòng dùng chế độ chạm hoặc cài Google Speech Services.');
+      }
+    }).catch(() => {
+      setIsVoiceListening(false);
+      Vibration.vibrate([0, 150, 80, 150]);
+      TtsService.speak('Không bật được nhận dạng giọng nói trên thiết bị này.');
+    });
+  }, [mainMode, isVoiceListening, handleVoiceCommand]);
 
   // ── Chụp ảnh + xử lý theo loại ──────────────
   type ProcessType = 'auto' | 'ocr_doc' | 'ocr_money' | 'ocr_menu';
@@ -341,14 +375,19 @@ export const useAppController = () => {
 
   // ── Chế độ tĩnh: nhận ảnh từ camera nội bộ rồi xử lý ───
   const handleStaticPhotoCaptured = useCallback(async (photoUri: string) => {
+    setLastCapturedPhotoUri(photoUri);
+
     const processType: ProcessType =
-      captureMode === 'offline'
-        ? (offlineProcessMode === 'object' ? 'auto' : 'ocr_doc')
-        : 'auto';
+      staticAutoCaptureDelayMs <= 150
+        ? 'ocr_doc'
+        : (captureMode === 'offline'
+          ? (offlineProcessMode === 'object' ? 'auto' : 'ocr_doc')
+          : 'auto');
 
     await processImage(photoUri, processType);
+    setStaticAutoCaptureDelayMs(500);
     setShowLiveCamera(false);
-  }, [captureMode, offlineProcessMode]);
+  }, [captureMode, offlineProcessMode, staticAutoCaptureDelayMs]);
 
   // ── IoT (giữ nguyên cho demo) ───────────────
   const toggleIoT = async (preferSimulator: boolean) => {
@@ -370,10 +409,13 @@ export const useAppController = () => {
     mainMode,
     loading,
     recognizedText,
+    lastCapturedPhotoUri,
+    staticAutoCaptureDelayMs,
     showLiveCamera,
     isVoiceListening,
     captureMode,
     toggleCaptureMode,
+    tryEnableOnlineMode,
     offlineProcessMode,
     toggleOfflineProcessMode,
     liveCameraRef,

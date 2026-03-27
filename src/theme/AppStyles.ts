@@ -10,6 +10,13 @@ export const AppStyles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  mainTouchAreaBgImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  mainTouchAreaBgOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   modeIcon: { fontSize: 72 },
   modeText: { color: '#fff', fontSize: 28, fontWeight: 'bold', letterSpacing: 2, textAlign: 'center' },
   modeHint: { color: 'rgba(255,255,255,0.65)', fontSize: 14, textAlign: 'center', lineHeight: 22, marginTop: 4 },

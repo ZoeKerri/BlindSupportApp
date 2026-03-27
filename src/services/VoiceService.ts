@@ -3,10 +3,7 @@
  * Dùng @react-native-voice/voice
  *
  * Lệnh hỗ trợ (chế độ tĩnh):
- *   "đọc sách" / "đọc" / "read"       → chụp + OCR tài liệu
- *   "tiền" / "mệnh giá"               → chụp + nhận diện tiền
- *   "menu" / "thực đơn" / "bảng giá"  → chụp + OCR menu
- *   "chụp" / "chụp ảnh"               → chụp + auto-detect
+ *   "đọc sách" / "đọc" / "read"       → chụp ngay + OCR tài liệu
  *   "help" / "hướng dẫn"              → đọc hướng dẫn sử dụng
  */
 
@@ -17,9 +14,6 @@ import Voice, {
 
 export type VoiceCommand =
   | 'doc_sach'   // đọc sách / tài liệu
-  | 'tien'       // nhận diện tiền
-  | 'menu'       // đọc menu / bảng giá
-  | 'chup'       // chụp ảnh auto-detect
   | 'help'       // đọc hướng dẫn nhanh
   | 'unknown';
 
@@ -33,9 +27,6 @@ function parseCommand(text: string): VoiceCommand {
 
   if (/đọc\s*sách|đọc\s*văn|đọc\s*tài\s*liệu|read|doc\s*sach/.test(lower)) return 'doc_sach';
   if (/đọc/.test(lower)) return 'doc_sach'; // "đọc" đứng riêng = đọc sách
-  if (/tiền|mệnh\s*giá|tien|menh\s*gia/.test(lower)) return 'tien';
-  if (/menu|thực\s*đơn|bảng\s*giá|bang\s*gia|thuc\s*don/.test(lower)) return 'menu';
-  if (/chụp|chup|ảnh|anh|capture/.test(lower)) return 'chup';
   if (/help|hướng\s*dẫn|huong\s*dan|trợ\s*giúp|tro\s*giup/.test(lower)) return 'help';
 
   return 'unknown';
@@ -46,6 +37,12 @@ function parseCommand(text: string): VoiceCommand {
 // ─────────────────────────────────────────
 let _callback: VoiceCommandCallback | null = null;
 let _isListening = false;
+let _isAvailable: boolean | null = null;
+
+const isSpeechServiceMissingError = (err: unknown): boolean => {
+  const message = String((err as any)?.message ?? err ?? '').toLowerCase();
+  return message.includes('service not registered') || message.includes('speechrecognizer');
+};
 
 export const VoiceService = {
   /**
@@ -80,13 +77,33 @@ export const VoiceService = {
    */
   startListening: async () => {
     if (_isListening) return;
+
+    if (_isAvailable === null) {
+      try {
+        _isAvailable = Boolean(await Voice.isAvailable());
+      } catch {
+        _isAvailable = false;
+      }
+    }
+
+    if (_isAvailable === false) {
+      console.warn('🎙️ [Voice] Speech recognition service is unavailable on this device.');
+      return false;
+    }
+
     try {
       _isListening = true;
       await Voice.start('vi-VN');
       console.log('🎙️ [Voice] Bắt đầu lắng nghe...');
+      return true;
     } catch (err) {
-      console.error('🎙️ [Voice] Lỗi start:', err);
+      if (isSpeechServiceMissingError(err)) {
+        console.warn('🎙️ [Voice] Speech service not registered on this device/emulator.');
+      } else {
+        console.warn('🎙️ [Voice] Lỗi start:', err);
+      }
       _isListening = false;
+      return false;
     }
   },
 
@@ -110,5 +127,6 @@ export const VoiceService = {
     Voice.destroy().then(Voice.removeAllListeners).catch(() => {});
     _callback = null;
     _isListening = false;
+    _isAvailable = null;
   },
 };
