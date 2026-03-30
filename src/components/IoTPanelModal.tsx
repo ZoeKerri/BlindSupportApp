@@ -39,7 +39,7 @@ const IoTPanelModal: React.FC<Props> = ({
         {iotMode !== 'disconnected' && (
           <Text style={s.subStatus}>
             {iotMode === 'simulator'
-              ? 'Đang giả lập tín hiệu mỗi 3 giây'
+              ? 'Đang giả lập tín hiệu nguy hiểm mỗi 10 giây'
               : 'Nhận tín hiệu từ ESP32 qua BLE'}
           </Text>
         )}

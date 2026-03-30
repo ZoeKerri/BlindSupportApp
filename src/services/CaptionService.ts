@@ -14,9 +14,17 @@ export interface CaptionResult {
   inference_time_s: number;
 }
 
-// LDPlayer/Emulator: host machine thường là 192.168.56.1 (VirtualBox host-only adapter)
-// Nếu dùng thiết bị thật: đổi thành IP WiFi của máy tính (ipconfig)
-let _apiUrl = 'http://192.168.56.1:8000';
+const ensureHttpProtocol = (url: string): string => {
+  const trimmed = url.trim().replace(/\/$/, '');
+  if (!trimmed) return DEFAULT_API_URL;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `http://${trimmed}`;
+};
+
+// USB debug (khuyên dùng): chạy `adb reverse tcp:8000 tcp:8000` rồi dùng localhost.
+// Nếu không dùng adb reverse: đổi sang IP Wi-Fi của máy tính.
+const DEFAULT_API_URL = 'http://127.0.0.1:8000';
+let _apiUrl = DEFAULT_API_URL;
 
 export const CaptionService = {
   get apiUrl(): string {
@@ -24,7 +32,7 @@ export const CaptionService = {
   },
 
   setApiUrl(url: string) {
-    _apiUrl = url.replace(/\/$/, '');
+    _apiUrl = ensureHttpProtocol(url);
   },
 
   /** Kiểm tra server còn sống không (timeout 3s) */

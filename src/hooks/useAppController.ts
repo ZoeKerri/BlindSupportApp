@@ -41,6 +41,20 @@ export const useAppController = () => {
   const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const TRIPLE_TAP_WINDOW = 1000; // 3 tap trong 1000ms
 
+  const ensureAudioPermission = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') return true;
+
+    try {
+      const granted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (granted) return true;
+
+      const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      return result === PermissionsAndroid.RESULTS.GRANTED;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // ── Khởi tạo ────────────────────────────────
   useEffect(() => {
     TtsService.init();
@@ -48,6 +62,7 @@ export const useAppController = () => {
     // Xin quyền camera 1 lần duy nhất khi mở app
     if (Platform.OS === 'android') {
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA).catch(() => {});
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO).catch(() => {});
     }
 
     return () => {
@@ -121,7 +136,7 @@ export const useAppController = () => {
       if (next === 'object') {
         TtsService.speak('Đã chuyển sang phân tích vật thể ngoại tuyến.');
       } else {
-        TtsService.speak('Đã chuyển sang OCR ngoại tuyến để đọc chữ.');
+        TtsService.speak('Đã chuyển sang OCR ngoại tuyến để đọc chữ và nhận diện tiền.');
       }
       return next;
     });
@@ -221,6 +236,32 @@ export const useAppController = () => {
 
   // ── Long press: toggle nhận dạng giọng nói (bật/tắt) ──
   const handleLongPress = useCallback(() => {
+    const startVoiceFlow = async () => {
+      const hasAudioPermission = await ensureAudioPermission();
+      if (!hasAudioPermission) {
+        setIsVoiceListening(false);
+        Vibration.vibrate([0, 150, 80, 150]);
+        TtsService.speak('Chưa có quyền microphone. Vào Cài đặt ứng dụng để cấp quyền Microphone rồi thử lại.');
+        return;
+      }
+
+      TtsService.speak('Đang bật nhận dạng giọng nói. Hãy nói đọc sách hoặc help.');
+      VoiceService.startListening().then((started) => {
+        if (started) {
+          setIsVoiceListening(true);
+          TtsService.speak('Đang lắng nghe lệnh. Hãy nói đọc sách hoặc help.');
+        } else {
+          setIsVoiceListening(false);
+          Vibration.vibrate([0, 150, 80, 150]);
+          TtsService.speak('Thiết bị chưa có dịch vụ nhận diện giọng nói. Vui lòng dùng chế độ chạm hoặc cài Google Speech Services.');
+        }
+      }).catch(() => {
+        setIsVoiceListening(false);
+        Vibration.vibrate([0, 150, 80, 150]);
+        TtsService.speak('Không bật được nhận dạng giọng nói trên thiết bị này.');
+      });
+    };
+
     if (mainMode !== 'static') {
       TtsService.speak('Chế độ đi đường không dùng giữ lâu. Chạm 3 lần để về chế độ tĩnh rồi giữ lâu để bật giọng nói.');
       return;
@@ -249,22 +290,8 @@ export const useAppController = () => {
       }
     }
 
-    TtsService.speak('Đang bật nhận dạng giọng nói. Hãy nói đọc sách hoặc help.');
-    VoiceService.startListening().then((started) => {
-      if (started) {
-        setIsVoiceListening(true);
-        TtsService.speak('Đang lắng nghe lệnh. Hãy nói đọc sách hoặc help.');
-      } else {
-        setIsVoiceListening(false);
-        Vibration.vibrate([0, 150, 80, 150]);
-        TtsService.speak('Thiết bị chưa có dịch vụ nhận diện giọng nói. Vui lòng dùng chế độ chạm hoặc cài Google Speech Services.');
-      }
-    }).catch(() => {
-      setIsVoiceListening(false);
-      Vibration.vibrate([0, 150, 80, 150]);
-      TtsService.speak('Không bật được nhận dạng giọng nói trên thiết bị này.');
-    });
-  }, [mainMode, isVoiceListening, handleVoiceCommand]);
+    void startVoiceFlow();
+  }, [mainMode, isVoiceListening, handleVoiceCommand, ensureAudioPermission]);
 
   // ── Chụp ảnh + xử lý theo loại ──────────────
   type ProcessType = 'auto' | 'ocr_doc' | 'ocr_money' | 'ocr_menu';
@@ -314,7 +341,9 @@ export const useAppController = () => {
           if (captureMode === 'online') {
             resultText = await CaptionService.captionImage(imageUri);
           } else {
-            resultText = await VisionService.processAutoDetect(imageUri);
+            resultText = offlineProcessMode === 'object'
+              ? await VisionService.processObjectDetection(imageUri)
+              : await VisionService.processAutoDetect(imageUri);
           }
           break;
       }
@@ -338,11 +367,15 @@ export const useAppController = () => {
       maxHeight: 3000,
     };
     const result = await launchImageLibrary(options);
-    if (result.assets?.[0]?.uri) {
+    const selectedUri = result.assets?.[0]?.uri;
+
+    if (selectedUri) {
+      setLastCapturedPhotoUri(selectedUri);
+
       if (captureMode === 'offline') {
-        await processImage(result.assets[0].uri, offlineProcessMode === 'object' ? 'auto' : 'ocr_doc');
+        await processImage(selectedUri, 'auto');
       } else {
-        await processImage(result.assets[0].uri, 'auto');
+        await processImage(selectedUri, 'auto');
       }
     }
   };
@@ -381,7 +414,7 @@ export const useAppController = () => {
       staticAutoCaptureDelayMs <= 150
         ? 'ocr_doc'
         : (captureMode === 'offline'
-          ? (offlineProcessMode === 'object' ? 'auto' : 'ocr_doc')
+          ? 'auto'
           : 'auto');
 
     await processImage(photoUri, processType);

@@ -111,28 +111,6 @@ const calcAverageLineHeight = (lines: any[]): number => {
 };
 
 // ========================================
-// HELPER: Phát hiện có phải biển báo không
-// - Biển báo thường ít chữ, có từ khóa đặc trưng
-// ========================================
-const SIGN_KEYWORDS = [
-  'cấm', 'dừng', 'stop', 'lối ra', 'exit', 'thoát hiểm', 'cứu hỏa',
-  'nguy hiểm', 'cảnh báo', 'warning', 'danger', 'no', 'tốc độ',
-  'km/h', 'kmh', 'một chiều', 'cấm vào', 'lối vào', 'entrance',
-  'toilet', 'wc', 'vệ sinh', 'tầng', 'phòng', 'số', 'thoát',
-];
-
-const isLikelySign = (text: string, blockCount: number): boolean => {
-  const lower = text.toLowerCase();
-  const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-
-  // Biển báo thường ngắn (ít chữ) hoặc có từ khóa biển báo
-  const hasSignKeyword = SIGN_KEYWORDS.some(kw => lower.includes(kw));
-  const isShortText = wordCount <= 8 && blockCount <= 2;
-
-  return hasSignKeyword || isShortText;
-};
-
-// ========================================
 // HELPER: Phát hiện có phải menu/bảng giá không
 // - Có giá tiền, nhiều dòng, cấu trúc 2 cột
 // ========================================
@@ -158,7 +136,7 @@ export const VisionService = {
 
   // ==========================================
   // AUTO-DETECT: Tự động nhận diện loại nội dung
-  // Thứ tự ưu tiên: tiền → biển báo → menu → sách → vật thể
+  // Thứ tự ưu tiên: menu → tiền → tài liệu → vật thể
   // ==========================================
   processAutoDetect: async (imageUri: string): Promise<string> => {
     try {
@@ -199,13 +177,7 @@ export const VisionService = {
           return `Đây là tờ ${label}.`;
         }
 
-        // --- Ưu tiên 3: Biển báo ---
-        if (isLikelySign(fullText, blockCount)) {
-          console.log('🚦 [AutoDetect] → Biển báo');
-          return VisionService._extractSignText(ocrResult);
-        }
-
-        // --- Ưu tiên 4: Tài liệu / Sách (nhiều chữ) ---
+        // --- Ưu tiên 3: Tài liệu / Sách (nhiều chữ) ---
         console.log('📖 [AutoDetect] → Tài liệu');
         return VisionService._extractDocumentText(ocrResult);
       }
@@ -218,24 +190,6 @@ export const VisionService = {
       console.error('❌ Lỗi AutoDetect:', error);
       return 'Có lỗi xảy ra khi phân tích ảnh.';
     }
-  },
-
-  // ==========================================
-  // INTERNAL: Trích xuất văn bản biển báo
-  // ==========================================
-  _extractSignText: (result: TextRecognitionResult): string => {
-    const sortedBlocks = [...result.blocks].sort((a, b) =>
-      (a.frame?.top ?? 0) - (b.frame?.top ?? 0)
-    );
-
-    const lines = sortedBlocks
-      .map(block => cleanOCRText(block.text))
-      .filter(t => t.length > 0);
-
-    if (lines.length === 0) return 'Không đọc được biển báo.';
-
-    const text = lines.join('. ');
-    return `Biển báo: ${text}.`;
   },
 
   // ==========================================
@@ -431,12 +385,6 @@ export const VisionService = {
       return `Không xác định được mệnh giá. Đọc được: "${allPieces[0].text}". Hãy chụp rõ mặt có số tiền.`;
     }
     return 'Không nhận diện được mệnh giá. Hãy chụp rõ mặt có số tiền.';
-  },
-
-  processSignOCR: async (imageUri: string): Promise<string> => {
-    const result = await TextRecognition.recognize(imageUri);
-    if (!result.text || result.blocks.length === 0) return 'Không tìm thấy nội dung biển báo.';
-    return VisionService._extractSignText(result);
   },
 
   processObjectDetection: async (imageUri: string): Promise<string> => {

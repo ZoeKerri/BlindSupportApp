@@ -47,6 +47,13 @@ const HomeScreen = () => {
           return;
         }
 
+        // Khi đang online, cho phép vuốt 1 ngón để quay về offline
+        // để tránh phụ thuộc hoàn toàn vào gesture 2 ngón (dễ miss trên release).
+        if (touches === 1 && captureMode === 'online') {
+          toggleCaptureMode();
+          return;
+        }
+
         if (touches === 1 && mainMode === 'static') {
           const now = Date.now();
           const swipes = swipeTimesRef.current;
@@ -97,7 +104,7 @@ const HomeScreen = () => {
 
   const modeHint: Record<MainMode, string> = {
     walking: 'Camera tự động nhận diện vật thể\nChạm 3 lần để chuyển chế độ',
-    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR/vật thể · Vuốt 3 lần liên tiếp để bật online · Chạm 3 lần để chuyển chế độ',
+    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR/vật thể · OCR có nhận diện tiền · Vuốt 3 lần liên tiếp để bật online · Chạm 3 lần để chuyển chế độ',
   };
 
   return (
@@ -171,7 +178,7 @@ const HomeScreen = () => {
                 offlineProcessMode === 'object' ? s.captureBadgeOffline : s.captureBadgeOnline,
               ]}>
                 <Text style={s.captureBadgeText}>
-                  {offlineProcessMode === 'object' ? '📦 OFFLINE: VẬT THỂ' : '📝 OFFLINE: OCR'}
+                  {offlineProcessMode === 'object' ? '📦 OFFLINE: VẬT THỂ' : '📝 OFFLINE: OCR + TIỀN'}
                 </Text>
               </View>
             )}

@@ -104,30 +104,16 @@ class IoTSimulator {
     this.callback = callback;
     console.log('🤖 [IoT Simulator] Bắt đầu giả lập tín hiệu gậy dò đường...');
 
-    // Giả lập: mỗi 3s ngẫu nhiên gửi tín hiệu
+    // Giả lập: mỗi 10 giây gửi cảnh báo nguy hiểm cố định
     this.intervalId = setInterval(() => {
-      const rand = Math.random();
-      let signal: string;
-
-      if (rand < 0.15) {
-        // 15% xác suất: nguy hiểm
-        const dist = Math.floor(Math.random() * 29) + 5; // 5-29cm
-        signal = `OBS:${dist}`;
-      } else if (rand < 0.35) {
-        // 20% xác suất: cẩn thận
-        const dist = Math.floor(Math.random() * 49) + 31; // 31-79cm
-        signal = `OBS:${dist}`;
-      } else {
-        // 65%: an toàn
-        signal = 'SAFE';
-      }
+      const signal = 'OBS:20';
 
       console.log('🤖 [IoT Simulator] Tín hiệu giả lập:', signal);
       const event = parseESP32Signal(signal);
       if (event.level !== 'safe') {
         this.callback?.(event);
       }
-    }, 3000);
+    }, 10000);
   }
 
   sendManual(signal: string) {
