@@ -1,12 +1,14 @@
-import React, { useState, useRef } from 'react';
+// HomeScreen.tsx
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, Image,
-  ActivityIndicator, ScrollView, Modal, PanResponder,
+  ActivityIndicator, ScrollView, Modal, PanResponder, TextInput,
 } from 'react-native';
 import { useAppController, MainMode } from '../hooks/useAppController';
 import LiveCameraView from '../components/LiveCameraView';
 import IoTPanelModal from '../components/IoTPanelModal';
 import { AppStyles as s } from '../theme/AppStyles';
+import { CaptionService } from '../services/CaptionService';
 
 const HomeScreen = () => {
   const {
@@ -23,94 +25,177 @@ const HomeScreen = () => {
   } = useAppController();
 
   const [showIoTPanel, setShowIoTPanel] = useState(false);
+  const [showApiModal, setShowApiModal] = useState(true);
+  const [apiUrlInput, setApiUrlInput] = useState(CaptionService.apiUrl);
   const swipeTimesRef = useRef<number[]>([]);
   const SWIPE_STREAK_WINDOW_MS = 2200;
 
-  // Vuốt:
-  // - 1 ngón tay (chế độ tĩnh + offline): object/ocr
-  // - Vuốt ngang 3 lần liên tiếp: thử chuyển online (có kiểm tra server)
-  // - 2 ngón tay: giữ hành vi cũ online/offline
-  const swipeResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder:        () => false,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder:         (_evt, gesture) => (
-        Math.abs(gesture.dx) > 22 && Math.abs(gesture.dx) > Math.abs(gesture.dy)
-      ),
-      onMoveShouldSetPanResponderCapture:  () => false,
-      onPanResponderRelease: (evt, gesture) => {
-        if (Math.abs(gesture.dx) <= 60) return;
+  const handleSaveApiUrl = () => {
+    let newUrl = apiUrlInput.trim();
+    if (!/^https?:\/\//i.test(newUrl)) {
+      if (!/:\d+$/.test(newUrl)) {
+        newUrl = `http://${newUrl}:8000`;
+      } else {
+        newUrl = `http://${newUrl}`;
+      }
+    }
+    CaptionService.setApiUrl(newUrl);
+    setShowApiModal(false);
+  };
 
-        const touches = evt.nativeEvent.touches.length || evt.nativeEvent.changedTouches.length;
-        if (touches >= 2) {
-          toggleCaptureMode();
-          return;
-        }
+  const extractHost = (url: string) => {
+    const m = String(url).match(/^(?:https?:\/\/)?([^\/\:]+)(?::\d+)?/i);
+    return m ? m[1] : url;
+  };
 
-        // Khi đang online, cho phép vuốt 1 ngón để quay về offline
-        // để tránh phụ thuộc hoàn toàn vào gesture 2 ngón (dễ miss trên release).
-        if (touches === 1 && captureMode === 'online') {
-          toggleCaptureMode();
-          return;
-        }
+  useEffect(() => {
+    if (showApiModal) {
+      setApiUrlInput(extractHost(CaptionService.apiUrl));
+    }
+  }, [showApiModal]);
 
-        if (touches === 1 && mainMode === 'static') {
-          const now = Date.now();
-          const swipes = swipeTimesRef.current;
-          swipes.push(now);
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_evt, gesture) =>
+          Math.abs(gesture.dx) > 22 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        onMoveShouldSetPanResponderCapture: () => false,
+        onPanResponderRelease: (evt, gesture) => {
+          if (Math.abs(gesture.dx) <= 60) return;
 
-          while (swipes.length > 0 && now - swipes[0] > SWIPE_STREAK_WINDOW_MS) {
-            swipes.shift();
-          }
+          const touches =
+            evt.nativeEvent.touches.length || evt.nativeEvent.changedTouches.length;
 
-          if (captureMode === 'offline' && swipes.length >= 3) {
-            swipeTimesRef.current = [];
-            tryEnableOnlineMode();
+          if (touches >= 2) {
+            toggleCaptureMode();
             return;
           }
 
-          if (captureMode === 'offline') {
-            toggleOfflineProcessMode();
+          if (touches === 1 && captureMode === 'online') {
+            toggleCaptureMode();
+            return;
           }
-        }
-      },
-    })
-  ).current;
+
+          if (touches === 1 && mainMode === 'static') {
+            const now = Date.now();
+            const swipes = swipeTimesRef.current;
+            swipes.push(now);
+            while (swipes.length > 0 && now - swipes[0] > SWIPE_STREAK_WINDOW_MS) {
+              swipes.shift();
+            }
+            if (captureMode === 'offline' && swipes.length >= 3) {
+              swipeTimesRef.current = [];
+              tryEnableOnlineMode();
+              return;
+            }
+            if (captureMode === 'offline') {
+              toggleOfflineProcessMode();
+            }
+          }
+        },
+      }),
+    [captureMode, mainMode, toggleCaptureMode, tryEnableOnlineMode, toggleOfflineProcessMode]
+  );
 
   const iotBadgeColor =
-    iotMode === 'ble'       ? '#2ed573' :
-    iotMode === 'simulator' ? '#ffa502' :
-    '#747d8c';
+    iotMode === 'ble' ? '#2ed573' : iotMode === 'simulator' ? '#ffa502' : '#747d8c';
 
   const iotBadgeLabel =
-    iotMode === 'ble'       ? '📡 BLE' :
-    iotMode === 'simulator' ? '🤖 SIM' :
-    '⚫ OFF';
+    iotMode === 'ble' ? '📡 BLE' : iotMode === 'simulator' ? '🤖 SIM' : '⚫ OFF';
 
   const alertBgColor =
-    iotAlert?.level === 'danger'  ? '#ff4757' :
-    iotAlert?.level === 'caution' ? '#ffa502' :
-    'transparent';
+    iotAlert?.level === 'danger'
+      ? '#ff4757'
+      : iotAlert?.level === 'caution'
+      ? '#ffa502'
+      : 'transparent';
 
   const modeColor: Record<MainMode, string> = {
     walking: '#e94560',
-    static:  '#0f3460',
+    static: '#0f3460',
   };
 
   const modeLabel: Record<MainMode, string> = {
     walking: '🚶  CHẾ ĐỘ ĐI ĐƯỜNG',
-    static:  '📸  CHẾ ĐỘ TĨNH',
+    static: '📸  CHẾ ĐỘ TĨNH',
   };
 
   const modeHint: Record<MainMode, string> = {
-    walking: 'Camera tự động nhận diện vật thể\nChạm 3 lần để chuyển chế độ',
-    static:  'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR/vật thể · OCR có nhận diện tiền · Vuốt 3 lần liên tiếp để bật online · Chạm 3 lần để chuyển chế độ',
+    walking:
+      'Camera tự động nhận diện vật thể\nChạm 3 lần để chuyển chế độ',
+    static:
+      'Chạm = chụp ảnh · Giữ lâu = lệnh giọng nói\nVuốt trái/phải (offline) đổi OCR/vật thể · OCR có nhận diện tiền · Vuốt 3 lần liên tiếp để bật online · Chạm 3 lần để chuyển chế độ',
   };
 
   return (
     <View style={s.container} {...swipeResponder.panHandlers}>
 
-      {/* ── LIVE CAMERA (chế độ đi đường) ── */}
+      {/* ── NHẬP IP SERVER ── */}
+      <Modal
+        visible={showApiModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowApiModal(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.7)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}
+        >
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8, color: '#0f3460' }}>
+              🌐 Địa chỉ Server
+            </Text>
+            <Text style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
+              Nhập IP máy tính chạy FastAPI (cùng wifi){'\n'}
+              Ví dụ: http://192.168.1.100:8000
+            </Text>
+            <TextInput
+              value={apiUrlInput}
+              onChangeText={setApiUrlInput}
+              placeholder="http://192.168.x.x:8000"
+              placeholderTextColor="#aaa"
+              autoCapitalize="none"
+              keyboardType="url"
+              style={{
+                borderWidth: 1,
+                borderColor: '#ddd',
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 15,
+                marginBottom: 16,
+                color: '#333',
+              }}
+            />
+            <TouchableOpacity
+              onPress={handleSaveApiUrl}
+              style={{
+                backgroundColor: '#0f3460',
+                borderRadius: 10,
+                padding: 14,
+                alignItems: 'center',
+                marginBottom: 10,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Xác nhận</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowApiModal(false)}
+              style={{ alignItems: 'center', padding: 10 }}
+            >
+              <Text style={{ color: '#999', fontSize: 14 }}>Bỏ qua (dùng địa chỉ cũ)</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── LIVE CAMERA ── */}
       <Modal
         visible={showLiveCamera}
         animationType="slide"
@@ -148,7 +233,6 @@ const HomeScreen = () => {
             resizeMode="cover"
           />
         )}
-
         {mainMode === 'static' && lastCapturedPhotoUri && (
           <View style={s.mainTouchAreaBgOverlay} />
         )}
@@ -163,22 +247,27 @@ const HomeScreen = () => {
             <Text style={s.modeIcon}>{mainMode === 'walking' ? '🚶' : '📸'}</Text>
             <Text style={s.modeText}>{modeLabel[mainMode]}</Text>
             <Text style={s.modeHint}>{modeHint[mainMode]}</Text>
-            {/* Badge online/offline */}
-            <View style={[
-              s.captureBadge,
-              captureMode === 'online' ? s.captureBadgeOnline : s.captureBadgeOffline,
-            ]}>
+            <View
+              style={[
+                s.captureBadge,
+                captureMode === 'online' ? s.captureBadgeOnline : s.captureBadgeOffline,
+              ]}
+            >
               <Text style={s.captureBadgeText}>
                 {captureMode === 'online' ? '🌐 ONLINE' : '🔌 OFFLINE'}
               </Text>
             </View>
             {captureMode === 'offline' && (
-              <View style={[
-                s.captureBadge,
-                offlineProcessMode === 'object' ? s.captureBadgeOffline : s.captureBadgeOnline,
-              ]}>
+              <View
+                style={[
+                  s.captureBadge,
+                  offlineProcessMode === 'object' ? s.captureBadgeOffline : s.captureBadgeOnline,
+                ]}
+              >
                 <Text style={s.captureBadgeText}>
-                  {offlineProcessMode === 'object' ? '📦 OFFLINE: VẬT THỂ' : '📝 OFFLINE: OCR + TIỀN'}
+                  {offlineProcessMode === 'object'
+                    ? '📦 OFFLINE: VẬT THỂ'
+                    : '📝 OFFLINE: OCR + TIỀN'}
                 </Text>
               </View>
             )}
@@ -194,10 +283,17 @@ const HomeScreen = () => {
 
       {/* ── KẾT QUẢ ── */}
       <ScrollView style={s.resultContainer} contentContainerStyle={s.resultContent}>
-        <Text style={s.resultText}>{recognizedText}</Text>
+        {loading && !recognizedText ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#0f3460" />
+            <Text style={{ marginTop: 10, color: '#555', fontSize: 16 }}>Đang phân tích...</Text>
+          </View>
+        ) : (
+          <Text style={s.resultText}>{recognizedText}</Text>
+        )}
       </ScrollView>
 
-      {/* ── THANH DƯỚI: Gallery + IoT ── */}
+      {/* ── THANH DƯỚI ── */}
       <View style={s.bottomBar}>
         <TouchableOpacity
           style={[s.galleryButton, { flex: 3 }]}
@@ -207,7 +303,6 @@ const HomeScreen = () => {
         >
           <Text style={s.bottomButtonText}>🖼️  CHỌN ẢNH</Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[s.iotButton, { backgroundColor: iotBadgeColor }]}
           onPress={() => setShowIoTPanel(true)}
@@ -223,7 +318,8 @@ const HomeScreen = () => {
         <View style={[s.alertBanner, { backgroundColor: alertBgColor }]}>
           <Text style={s.alertText}>
             {iotAlert.level === 'danger' ? '⚠️ NGUY HIỂM' : '⚡ CHÚ Ý'}
-            {'  '}{iotAlert.message}
+            {'  '}
+            {iotAlert.message}
           </Text>
         </View>
       )}
@@ -238,7 +334,6 @@ const HomeScreen = () => {
         toggleIoT={toggleIoT}
         testIoTSignal={testIoTSignal}
       />
-
     </View>
   );
 };

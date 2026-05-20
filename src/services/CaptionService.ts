@@ -23,7 +23,7 @@ const ensureHttpProtocol = (url: string): string => {
 
 // USB debug (khuyên dùng): chạy `adb reverse tcp:8000 tcp:8000` rồi dùng localhost.
 // Nếu không dùng adb reverse: đổi sang IP Wi-Fi của máy tính.
-const DEFAULT_API_URL = 'http://127.0.0.1:8000';
+const DEFAULT_API_URL = 'http://localhost:8000';
 let _apiUrl = DEFAULT_API_URL;
 
 export const CaptionService = {
@@ -91,6 +91,7 @@ export const CaptionService = {
     const data = await CaptionService.captionRaw(imageUri);
     const caption = (data.caption || data.blip_caption || '').trim();
     if (!caption) return 'Không mô tả được ảnh.';
-    return `Phía trước: ${caption}.`;
+    // Bỏ prefix "Phía trước: "
+    return caption;
   },
 };
